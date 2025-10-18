@@ -13,17 +13,35 @@ end
 def extract_date(line)
   raw = line.split(':').last.strip
   DateTime.strptime(raw, '%Y%m%dT%H%M%S')
+rescue
+  puts "❌ Failed to parse date from line: #{line}"
+  nil
 end
 
 def extract_game_id(echl_game_url)
+  puts "🔗 Fetching ECHL game page: #{echl_game_url}"
   html = URI.open(echl_game_url).read
   doc = Nokogiri::HTML(html)
+
   link = doc.css('a[href*="game_reports/official-game-report.php"]').find { |a| a['href'] =~ /game_id=(\d+)/ }
-  link&.[]('href')&.match(/game_id=(\d+)/)&.captures&.first
+  if link
+    match = link['href'].match(/game_id=(\d+)/)
+    if match
+      puts "🧲 Found game_id: #{match[1]}"
+      return match[1]
+    end
+  end
+
+  puts "❌ No game_id found in page"
+  nil
+rescue => e
+  puts "⚠️ Failed to fetch or parse ECHL page: #{e}"
+  nil
 end
 
 def parse_game_sheet(game_id)
   url = "#{GAME_REPORT_BASE}#{game_id}"
+  puts "📄 Fetching game sheet: #{url}"
   html = URI.open(url).read
   doc = Nokogiri::HTML(html)
 
@@ -36,31 +54,37 @@ def parse_game_sheet(game_id)
     team = cells[1]
     scorer = cells[3].split('(').first.strip
     assists = cells[4].strip
-    entry = if assists.empty?
-              "#{scorer} (unassisted)"
-            else
-              "#{scorer} (#{assists})"
-            end
+    entry = assists.empty? ? "#{scorer} (unassisted)" : "#{scorer} (#{assists})"
+
     if team == "GVL"
       home_goals << entry
-    elsif team == "UTA"
+    elsif team == "UTA" || team != "GVL"
       away_goals << entry
     end
   end
 
   score = { home: home_goals.size, away: away_goals.size }
+  puts "📊 Parsed score: GVL #{score[:home]} – #{score[:away]}, Home goals: #{home_goals.size}, Away goals: #{away_goals.size}"
   { score:, home_goals:, away_goals: }
+rescue => e
+  puts "⚠️ Failed to parse game sheet for game_id #{game_id}: #{e}"
+  { score: { home: 0, away: 0 }, home_goals: [], away_goals: [] }
 end
 
 games = []
 ics = URI.open(ICS_URL).read
 events = ics.split("BEGIN:VEVENT")
+puts "📅 Found #{events.size} events in ICS"
 
 events.each do |event|
   dtstart = event.lines.find { |l| l.start_with?("DTSTART") }
   next unless dtstart
   date = extract_date(dtstart)
-  next if date > DateTime.now
+  next unless date
+  if date > DateTime.now
+    puts "⏳ Skipping future game on #{date}"
+    next
+  end
 
   opponent = event.lines.find { |l| l.include?("SUMMARY:") }&.split(':')&.last&.strip&.gsub("vs ", "") || "Unknown"
   location = event.include?("LOCATION:Bon Secours") ? "Home" : "Away"
@@ -68,27 +92,22 @@ events.each do |event|
   date_path = date.strftime("%Y/%m/%d")
   echl_url = "#{BASE_URL}/#{date_path}/greenville-swamp-rabbits-vs-#{slug}"
 
-  begin
-    game_id = extract_game_id(echl_url)
-    next unless game_id
-    puts "🧲 Found game_id #{game_id} for #{date.strftime("%b %d")} vs #{opponent}"
+  game_id = extract_game_id(echl_url)
+  next unless game_id
 
-    data = parse_game_sheet(game_id)
-    games << {
-      game_id: game_id.to_i,
-      date: date.strftime("%a, %b %d"),
-      status: "Final",
-      home_team: "Greenville",
-      away_team: opponent,
-      home_score: data[:score][:home],
-      away_score: data[:score][:away],
-      game_report_url: "#{GAME_REPORT_BASE}#{game_id}",
-      home_goals: data[:home_goals],
-      away_goals: data[:away_goals]
-    }
-  rescue => e
-    puts "⚠️ Failed to process game on #{date}: #{e}"
-  end
+  data = parse_game_sheet(game_id)
+  games << {
+    game_id: game_id.to_i,
+    date: date.strftime("%a, %b %d"),
+    status: "Final",
+    home_team: "Greenville",
+    away_team: opponent,
+    home_score: data[:score][:home],
+    away_score: data[:score][:away],
+    game_report_url: "#{GAME_REPORT_BASE}#{game_id}",
+    home_goals: data[:home_goals],
+    away_goals: data[:away_goals]
+  }
 end
 
 File.write("swamp_schedule.json", JSON.pretty_generate(games))
