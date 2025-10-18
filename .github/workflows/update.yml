@@ -28,9 +28,5 @@ jobs:
           git config user.name "SwampBot"
           git config user.email "swampbot@example.com"
           git add -A
-          git commit -m "Update swamp schedule" || echo "🟡 Nothing to commit"
-          git push
-          git config user.email "swampbot@example.com"
-          git add swamp_schedule.json
-          git commit -m "Update swamp schedule"
+          git diff --cached --quiet || git commit -m "Update swamp schedule"
           git push
