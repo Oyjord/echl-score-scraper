@@ -58,13 +58,13 @@ def parse_game_sheet(game_id)
 
     if team == "GVL"
       home_goals << entry
-    elsif team == "UTA" || team != "GVL"
+    elsif team != "GVL"
       away_goals << entry
     end
   end
 
   score = { home: home_goals.size, away: away_goals.size }
-  puts "📊 Parsed score: GVL #{score[:home]} – #{score[:away]}, Home goals: #{home_goals.size}, Away goals: #{away_goals.size}"
+  puts "📊 Parsed score: GVL #{score[:home]} – #{score[:away]}"
   { score:, home_goals:, away_goals: }
 rescue => e
   puts "⚠️ Failed to parse game sheet for game_id #{game_id}: #{e}"
@@ -96,18 +96,22 @@ events.each do |event|
   next unless game_id
 
   data = parse_game_sheet(game_id)
-  games << {
-    game_id: game_id.to_i,
-    date: date.strftime("%a, %b %d"),
-    status: "Final",
-    home_team: "Greenville",
-    away_team: opponent,
-    home_score: data[:score][:home],
-    away_score: data[:score][:away],
-    game_report_url: "#{GAME_REPORT_BASE}#{game_id}",
-    home_goals: data[:home_goals],
-    away_goals: data[:away_goals]
-  }
+  if data[:home_goals].any? || data[:away_goals].any?
+    games << {
+      game_id: game_id.to_i,
+      date: date.strftime("%a, %b %d"),
+      status: "Final",
+      home_team: "Greenville",
+      away_team: opponent,
+      home_score: data[:score][:home],
+      away_score: data[:score][:away],
+      game_report_url: "#{GAME_REPORT_BASE}#{game_id}",
+      home_goals: data[:home_goals],
+      away_goals: data[:away_goals]
+    }
+  else
+    puts "⚠️ No goals found for game_id #{game_id} — skipping"
+  end
 end
 
 File.write("swamp_schedule.json", JSON.pretty_generate(games))
