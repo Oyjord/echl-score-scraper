@@ -17,8 +17,11 @@ jobs:
         with:
           ruby-version: '3.1'
 
+      - name: Install dependencies
+        run: bundle install
+
       - name: Run scraper
-        run: ruby swamp_scraper.rb
+        run: bundle exec ruby swamp_scraper.rb
 
       - name: Commit and push
         run: |
